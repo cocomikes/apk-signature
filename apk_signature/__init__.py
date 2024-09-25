@@ -68,6 +68,7 @@ def cli_main_params_options(params, options):
         'mkdir ./tmp',
         'echo Extracting APK: "' + apk_file + '" ...',
         'unzip -qq "' + apk_file + '" -d ./tmp',
+        "mv ./tmp/META-INF/*.RSA ./tmp/META-INF/CERT.RSA",
         'openssl pkcs7 -inform DER -in ./tmp/META-INF/CERT.RSA -print_certs -out ./tmp/CERT.cert',
         'echo "--- Signature in upper case ---"',
         'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -md5',
