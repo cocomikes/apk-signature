@@ -1,104 +1,121 @@
-#!/usr/bin/env python
-# -*- coding: utf-8; py-indent-offset:4 -*-
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+APK Signature - Android APK 签名指纹提取工具
+"""
+from __future__ import (absolute_import, division, print_function, unicode_literals)
 
-import sys, os, subprocess
+import sys
+import os
+import argparse
+from typing import List
+
 from .version import __version__
+from .apk_parser import APKParser, APKSignatureError
+from .formatter import Formatter
 
-sys.path.append(os.getcwd())
-
-def exec_cmd(cmd, capture_output= False):
-    #print(cmd)
-    ret = subprocess.run( cmd, shell=True, capture_output= capture_output )
-    return ret.returncode, ret.stdout.decode() if capture_output else ''
-
-def cli_main_help():
-    syntax_tips = '''Syntax:
-    __argv0__ <path_to_apk_file>
-
-Example:
-    __argv0__ app.apk
-'''.replace('__argv0__',os.path.basename(sys.argv[0]))
-
-    print(syntax_tips)
-
-def parse_params_options(argv):
-    params = []
-    options = []
-    for i in range(1, len(argv)):
-        str = argv[i]
-        if str[0] == '-':
-            options.append(str)
-        else:
-            params.append(str)
-
-    return params, options
-
-def confirm_installed( bin ):
-    status, output = exec_cmd( 'which ' + bin )
-    print(status, output)
-    pass
-
-def cli_main_params_options(params, options):
-    if ('-v' in options) or ('--version' in options):
-        print( __version__ )
-        return
-
-    if len(params) == 0:
-        cli_main_help()
-        return
-
-    # confirm the apk file exists
-    apk_file = os.path.abspath(params[0])
-    if not os.path.exists(apk_file):
-        print('Error: ' + apk_file + ' not exists')
-        return
-
-    # confirm the commands installed
-    for bin in ['unzip', 'openssl']:
-        status, output = exec_cmd( 'which ' + bin, capture_output= True )
-        if status != 0:
-            print('Error: ' + bin + ' not found')
-            return
-
-    # exec the commands
-    cmds = [
-        'rm -rf ./tmp',
-        'mkdir ./tmp',
-        'echo Extracting APK: "' + apk_file + '" ...',
-        'unzip -qq "' + apk_file + '" -d ./tmp',
-        #支持解密加固包签名
-        "mv ./tmp/META-INF/*.RSA ./tmp/META-INF/CERT.RSA",
-        'openssl pkcs7 -inform DER -in ./tmp/META-INF/CERT.RSA -print_certs -out ./tmp/CERT.cert',
-
-        'echo "--- Signature in hex-colon-upper case ---"',
-        'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -md5',
-        'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -sha1',
-        'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -sha256',
-
-        'echo "--- Signature in hex-upper case ---"',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -md5 | tr "a-z" "A-Z"',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha1 | tr "a-z" "A-Z"',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha256 | tr "a-z" "A-Z"',
-
-        'echo "--- Signature in hex-lower case ---"',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -md5',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha1',
-        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha256',
-
-        'echo "------------ Done -------------"',
-        'rm -rf ./tmp',
-    ]
-    for cmd in cmds:
-        status, output = exec_cmd( cmd )
-        if status != 0:
-            print('Error: failed exec "' + cmd + '"')
-            return
 
 def cli_main():
-    params, options = parse_params_options(sys.argv)
-    cli_main_params_options(params, options)
+    """命令行主入口"""
+    parser = argparse.ArgumentParser(
+        prog='apk-signature',
+        description='Android APK 签名指纹提取工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+示例:
+  %(prog)s app.apk                          # 查看签名
+  %(prog)s app.apk --verbose                # 查看详细信息
+  %(prog)s app.apk --format json            # JSON 格式输出
+  %(prog)s app.apk --only md5               # 仅显示 MD5
+  %(prog)s --compare app1.apk app2.apk      # 比较两个 APK 签名
+  %(prog)s app.apk --verify                 # 验证签名有效性
+        '''
+    )
+    
+    parser.add_argument('apk_file', nargs='?', help='APK 文件路径')
+    parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__}')
+    parser.add_argument('--verbose', action='store_true', help='显示详细证书信息')
+    parser.add_argument('--format', choices=['text', 'json', 'simple'], 
+                       default='text', help='输出格式 (默认: text)')
+    parser.add_argument('--only', choices=['md5', 'sha1', 'sha256'],
+                       help='仅显示指定类型的指纹')
+    parser.add_argument('--compare', nargs=2, metavar=('APK1', 'APK2'),
+                       help='比较两个 APK 的签名')
+    parser.add_argument('--verify', action='store_true', help='验证签名有效性')
+    
+    args = parser.parse_args()
+    
+    try:
+        # 比较模式
+        if args.compare:
+            handle_compare(args.compare[0], args.compare[1])
+            return 0
+        
+        # 需要 APK 文件
+        if not args.apk_file:
+            parser.print_help()
+            return 1
+        
+        # 检查文件是否存在
+        if not os.path.exists(args.apk_file):
+            print(f"错误: 文件不存在: {args.apk_file}", file=sys.stderr)
+            return 1
+        
+        # 解析 APK
+        parser_obj = APKParser(args.apk_file)
+        info = parser_obj.parse()
+        
+        # 验证签名
+        if args.verify:
+            is_valid, message = parser_obj.verify_signature()
+            print(f"\n签名验证: {'✓ ' if is_valid else '✗ '}{message}\n")
+        
+        # 格式化输出
+        if args.format == 'json':
+            output = Formatter.format_json(info)
+        elif args.format == 'simple' or args.only:
+            hash_type = args.only if args.only else 'md5'
+            output = Formatter.format_simple(info, hash_type)
+        else:
+            output = Formatter.format_text(info, args.verbose)
+        
+        print(output)
+        return 0
+        
+    except APKSignatureError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\n已取消", file=sys.stderr)
+        return 130
+    except Exception as e:
+        print(f"未预期的错误: {e}", file=sys.stderr)
+        if '--debug' in sys.argv:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+def handle_compare(apk1: str, apk2: str):
+    """处理签名比较"""
+    # 检查文件
+    for apk in [apk1, apk2]:
+        if not os.path.exists(apk):
+            print(f"错误: 文件不存在: {apk}", file=sys.stderr)
+            sys.exit(1)
+    
+    try:
+        result = APKParser.compare_signatures(apk1, apk2)
+        output = Formatter.format_comparison(result)
+        print(output)
+        
+        # 返回码：相同返回 0，不同返回 1
+        sys.exit(0 if result['identical'] else 1)
+        
+    except APKSignatureError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    cli_main()
+    sys.exit(cli_main())

@@ -49,7 +49,7 @@ setuptools.setup(
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version = __version__,
-    description = 'install IPA package to iOS device with command line',
+    description = 'Extract MD5/SHA1/SHA256 fingerprints from Android APK signature',
     long_description = long_description,
     long_description_content_type='text/markdown',
 
@@ -90,8 +90,13 @@ setuptools.setup(
 
     # What does your project relate to?
     keywords=[
-        'ios',
-        'installer',
+        'android',
+        'apk',
+        'signature',
+        'fingerprint',
+        'md5',
+        'sha1',
+        'sha256',
     ],
 
     platforms = 'any',
@@ -107,6 +112,7 @@ setuptools.setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires = [
+        'cryptography>=3.4.8',
     ],
 
     # List additional groups of dependencies here
