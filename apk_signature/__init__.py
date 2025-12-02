@@ -68,16 +68,25 @@ def cli_main_params_options(params, options):
         'mkdir ./tmp',
         'echo Extracting APK: "' + apk_file + '" ...',
         'unzip -qq "' + apk_file + '" -d ./tmp',
+        #支持解密加固包签名
         "mv ./tmp/META-INF/*.RSA ./tmp/META-INF/CERT.RSA",
         'openssl pkcs7 -inform DER -in ./tmp/META-INF/CERT.RSA -print_certs -out ./tmp/CERT.cert',
-        'echo "--- Signature in upper case ---"',
+
+        'echo "--- Signature in hex-colon-upper case ---"',
         'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -md5',
         'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -sha1',
         'openssl x509 -in ./tmp/CERT.cert -fingerprint -noout -sha256',
-        'echo "--- Signature in lower case ---"',
+
+        'echo "--- Signature in hex-upper case ---"',
+        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -md5 | tr "a-z" "A-Z"',
+        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha1 | tr "a-z" "A-Z"',
+        'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha256 | tr "a-z" "A-Z"',
+
+        'echo "--- Signature in hex-lower case ---"',
         'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -md5',
         'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha1',
         'openssl x509 -in ./tmp/CERT.cert -outform DER | openssl dgst -sha256',
+
         'echo "------------ Done -------------"',
         'rm -rf ./tmp',
     ]
